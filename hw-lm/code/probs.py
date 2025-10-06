@@ -323,11 +323,13 @@ class BackoffAddLambdaLanguageModel(AddLambdaLanguageModel):
         super().__init__(vocab, lambda_)
 
     def prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> float:
-        # TODO: Reimplement me so that I do backoff
-        return super().prob(x, y, z)
-        # Don't forget the difference between the Wordtype z and the
-        # 1-element tuple (z,). If you're looking up counts,
-        # these will have very different counts!
+        V = self.vocab_size
+        # Unigram with backoff to uniform: p̂(z) = (c(z) + λ) / (c() + λV)
+        p_z = (self.event_count[z,] + self.lambda_) / (self.event_count[()] + self.lambda_ * V)
+        # Bigram with backoff to unigram: p̂(z|y) = (c(yz) + λV·p̂(z)) / (c(y) + λV)
+        p_z_given_y = (self.event_count[y, z] + self.lambda_ * V * p_z) / (self.context_count[y,] + self.lambda_ * V)
+        # Trigram with backoff to bigram: p̂(z|xy) = (c(xyz) + λV·p̂(z|y)) / (c(xy) + λV)
+        return (self.event_count[x, y, z] + self.lambda_ * V * p_z_given_y) / (self.context_count[x, y] + self.lambda_ * V)
 
 
 class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
