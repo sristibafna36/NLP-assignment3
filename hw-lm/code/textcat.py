@@ -84,8 +84,8 @@ def main():
     model2_name = args.model2.stem
     
     # Determine which corpus each model was trained on
-    model1_corpus = 'gen' if 'corpus=gen~' in str(args.model1) else 'spam'
-    model2_corpus = 'gen' if 'corpus=gen~' in str(args.model2) else 'spam'
+    model1_corpus = 'gen' 
+    model2_corpus = 'spam' 
     
     # Classify each file
     count1 = 0
