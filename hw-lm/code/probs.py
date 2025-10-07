@@ -340,9 +340,10 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         if l2 < 0:
             raise ValueError("Negative regularization strength {l2}")
         self.l2: float = l2
+        self.epochs: int = epochs
 
         # TODO: ADD CODE TO READ THE LEXICON OF WORD VECTORS AND STORE IT IN A USEFUL FORMAT.
-        self.dim: int = 99999999999  # TODO: SET THIS TO THE DIMENSIONALITY OF THE VECTORS
+        # TODO: SET THIS TO THE DIMENSIONALITY OF THE VECTORS
 
         # We wrap the following matrices in nn.Parameter objects.
         # This lets PyTorch know that these are parameters of the model
@@ -352,8 +353,55 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # We can also store other tensors in the model class,
         # like constant coefficients that shouldn't be altered by
         # training, but those wouldn't use nn.Parameter.
+
+        #open the lexicon file 
+        with open(lexicon_file) as file:
+            '''in the first line, the number of words is followed by the dimensions, so we 
+            need to extract that, and we do so by removing any whitespace and split everything
+            by spaces'''
+            first_line = file.readline().strip().split()
+            self.dim = int(first_line[1])
+            # then we create an empty dictionary to store our word to embeddings where the key
+            # is the word, and the value is the vector using torch.tensor
+            self.embeddings = {}
+            # we want to go through the rest of the lines in the file
+            for line in file:
+                # remove any whitespaces, and make sure it is split with spaces 
+                sections = line.strip().split()
+                # since the first value of each line is the word itself, we store that 
+                # in the word variable
+                word = sections[0]
+                # the vector list is to store embedding values for each word
+                vector = []
+                # we then go through the rest of the line, to get all the embedding values
+                for i in sections[1:]:
+                    # we add each value to our list, ensuring it is a float
+                    vector.append(float(i))
+                # we then convert each list into a pytorch tensor
+                self.embeddings[word] = torch.tensor(vector, dtype=torch.float32)
+        # we then need to check if OOL word is there, and store it in its own dictionary if it
+        # is for later reference
+        if OOL in self.embeddings:
+            self.ool_embeddings = self.embeddings[OOL]
+        else:
+            # if it isn't in the lexicon, then we create a zero vector, originally
+            # we were going to raise a value error, but could crash the code, so 
+            # decided to utilize a zero vector instead
+            self.ool_embeddings = torch.zeros(self.dim, dtype=torch.float32)
+
+        # We initialize the X paramater matrix, and the Y parameter matrix
         self.X = nn.Parameter(torch.zeros((self.dim, self.dim)), requires_grad=True)
         self.Y = nn.Parameter(torch.zeros((self.dim, self.dim)), requires_grad=True)
+    
+    #HELPER FUNCTION
+    def get_embedding(self, word: Wordtype) -> torch.Tensor:
+        # this function returns the embedding of a word if its in the 
+        # lexicon, and if it isn't it returns the OOL embedding of the word
+        # making sure that every word has an embedding 
+        if word in self.embeddings:
+            return self.embeddings[word]
+        else:
+            return self.ool_embeddings
 
     def log_prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> float:
         """Return log p(z | xy) according to this language model."""
@@ -383,7 +431,15 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # The return type, TorchScalar, represents a torch.Tensor scalar.
         # See Question 7 in INSTRUCTIONS.md for more info about fine-grained 
         # type annotations for Tensors.
-        raise NotImplementedError("Implement me!")
+
+        # first we want the logits for all z values
+        logit_vals = self.logits(x,y)
+        # normalizing all values
+        normalized_logs = torch.log_softmax(logit_vals, dim = 0)
+        # we store the position in the vocab which corresponds to word z
+        z_ind = self.vocab.index(z)
+        # return the normalized log probability for z
+        return normalized_logs[z_ind]
 
     def logits(self, x: Wordtype, y: Wordtype) -> Float[torch.Tensor,"vocab"]:
         """Return a vector of the logs of the unnormalized probabilities f(xyz) * θ 
@@ -408,7 +464,23 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # vocabulary, and "embedding" will be replaced by the embedding
         # dimensionality as given by the lexicon.  See
         # https://www.cs.jhu.edu/~jason/465/hw-lm/code/INSTRUCTIONS.html#a-note-on-type-annotations
-        raise NotImplementedError("Implement me!")
+        
+        # get the x and y value embedding vectors
+        x_embedding = self.get_embedding(x)
+        y_embedding = self.get_embedding(y)
+
+        # a list of logits for each x value
+        logits = []
+
+        # now we want to go through every word in our vocabulary and get the embedding 
+        # for the word z
+        for z in self.vocab:
+            z_embedding = self.get_embedding(z)
+            # now we need to calculate the unnormalized probability for x by using the formula
+            logit_val = (x_embedding @ self.X @ z_embedding) + (y_embedding @ self.Y @ z_embedding)
+            logits.append(logit_val)
+        # we want it to be a single tensor vector, so we use stack so that it is combined into one
+        return torch.stack(logits)
 
     def train(self, file: Path):    # type: ignore
         
