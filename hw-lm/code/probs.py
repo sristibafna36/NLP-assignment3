@@ -491,7 +491,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         ### The `type: ignore` comment above tells the type checker to ignore this inconsistency.
         
         # Optimization hyperparameters.
-        eta0 = 0.1  # initial learning rate
+        eta0 = 0.01  # initial learning rate
 
         # This is why we needed the nn.Parameter above.
         # The optimizer needs to know the list of parameters
@@ -503,7 +503,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         nn.init.zeros_(self.Y)   # type: ignore
 
         N = num_tokens(file)
-        log.info("Start optimizing on {N} training tokens...")
+        log.info(f"Start optimizing on {N} training tokens...")
 
         #####################
         # TODO: Implement your SGD here by taking gradient steps on a sequence
@@ -543,7 +543,39 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # instead of iterating over
         #     read_trigrams(file)
         #####################
-
+        
+        # we loop through all values of epochs
+        log.info(f"Training from corpus {file.name}")
+        print(f"DEBUG: l2={self.l2}, N={N}, learning_rate={eta0}")
+        for epoch in range(self.epochs):
+            # total loss for the epoch
+            epoch_log_prob = 0.0
+            # then we need to iterate through all the trigrams that exist in the file
+            for (x,y,z) in read_trigrams(file, self.vocab):
+                # here we are zeroing out the gradient values from the previous iteration
+                optimizer.zero_grad()
+                # now we can start by going through our forward pass , where we are
+                # first calculating the log probability and the regularization term
+                log_prob = self.log_prob_tensor(x, y, z)
+                regularization_term = (self.l2 / (2 * N)) * (torch.sum(self.X ** 2) + torch.sum(self.Y ** 2))
+                epoch_log_prob += log_prob.item()
+                # since our goal is to maximize the likelihood, we would have to 
+                # minimize the loss 
+                loss = -log_prob + regularization_term
+                # backward pass
+                loss.backward()
+                optimizer.step()
+                self.show_progress()
+                # adding a new line for each epoch value so its easier to understand 
+            with torch.no_grad():
+                # calculating our theta squared value to get our epoch val
+                theta_norm_sq = (self.X ** 2).sum() + (self.Y ** 2).sum()
+                # we calculate the average regularization penalty
+                reg_avg = (self.l2 / (2 * N)) * theta_norm_sq.item()
+            # we calculate the F(theta) value here and print it 
+            F = (epoch_log_prob / N) - reg_avg
+            print(f"epoch {epoch + 1}: F ={F}")
+        log.info(f"Finished training on {N} tokens")
         log.info("done optimizing.")
 
         # So how does the `backward` method work?
