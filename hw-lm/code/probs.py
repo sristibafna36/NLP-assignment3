@@ -546,7 +546,6 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         
         # we loop through all values of epochs
         log.info(f"Training from corpus {file.name}")
-        print(f"DEBUG: l2={self.l2}, N={N}, learning_rate={eta0}")
         for epoch in range(self.epochs):
             # total loss for the epoch
             epoch_log_prob = 0.0
@@ -627,4 +626,48 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
     # * You could use a different optimization algorithm instead of SGD, such
     #   as `torch.optim.Adam` (https://pytorch.org/docs/stable/optim.html).
     #
-    pass
+    def __init__(self, vocab: Vocab, lexicon_file: Path, l2: float, epochs: int) -> None:
+        super().__init__(vocab, lexicon_file, l2, epochs)
+        
+        # this is for the unigram indicator feature, we initialize all weight values 
+        # to zero 
+        self.unigram_weights = nn.Parameter(torch.zeros(len(vocab)), requires_grad=True)
+        
+        # this is for the unigram embedding feature, where w einitialize is again 
+        # initialized to zero 
+        self.U = nn.Parameter(torch.zeros(self.dim), requires_grad=True)
+    
+    def logits(self, x: Wordtype, y: Wordtype) -> Float[torch.Tensor, "vocab"]:
+        """Enhanced logits with unigram indicator features and unigram embedding features"""
+        
+        x_embedding = self.get_embedding(x)
+        y_embedding = self.get_embedding(y)
+        
+        logits = []
+
+        for z_idx, z in enumerate(self.vocab):
+            # get the embedding for the word z
+            z_embedding = self.get_embedding(z)
+            
+            # adding these values together similar to before
+            logit_val = (x_embedding @ self.X @ z_embedding) + (y_embedding @ self.Y @ z_embedding)
+            
+            # this is where we increase the value of the logit to ensure that the 
+            # weight is increased based on the frequency - feature 1
+            logit_val += self.unigram_weights[z_idx]
+            
+            # Here instead we want to add the dot product instead so that we have 
+            # similar words have similar scores - feature 2
+            logit_val += self.U @ z_embedding
+            
+            logits.append(logit_val)
+        
+        return torch.stack(logits)
+    
+    def train(self, file: Path):
+        # Initialize new parameters
+        nn.init.zeros_(self.unigram_weights)
+        nn.init.zeros_(self.U)
+        
+        # Call the parent's train
+        super().train(file)
